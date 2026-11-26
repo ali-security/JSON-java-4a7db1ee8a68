@@ -117,4 +117,73 @@ public class Util {
             );
         }
     }
+
+    /**
+     * Runs the given code on a separate thread that has a large (8 MiB) stack
+     * and returns whatever it threw. The tests may be run with a small stack
+     * (for example -Xss512k), on which a parser that descends to its default
+     * maximum nesting depth could run out of stack before the limit is reached,
+     * so a test could not tell a rejected document apart from a stack overflow.
+     * @param body the code to run
+     * @return the Throwable thrown by the body, or null if it completed normally
+     */
+    public static Throwable throwableFromLargeStack(final Runnable body) {
+        final Throwable[] thrown = new Throwable[1];
+        Thread worker = new Thread(null, new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    body.run();
+                } catch (Throwable t) {
+                    thrown[0] = t;
+                }
+            }
+        }, "large-stack-test", 8L * 1024 * 1024);
+        worker.start();
+        try {
+            worker.join();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException(
+                    "Interrupted while waiting for the large stack test thread", e);
+        }
+        return thrown[0];
+    }
+
+    /**
+     * Asserts that the given Throwable is the JSONException raised when a
+     * parser reaches its maximum nesting depth.
+     * @param thrown the Throwable to check, null when nothing was thrown
+     * @param maxNestingDepth the maximum nesting depth expected in the message
+     */
+    public static void assertMaxNestingDepthExceeded(Throwable thrown, int maxNestingDepth) {
+        if (thrown == null) {
+            fail("Expecting a JSONException");
+        }
+        assertTrue("Wrong throwable thrown: " + thrown, thrown instanceof JSONException);
+        assertTrue("Wrong throwable thrown: not expecting message <" + thrown.getMessage() + ">",
+                thrown.getMessage().startsWith("Maximum nesting depth of " + maxNestingDepth));
+    }
+
+    /**
+     * Builds an XML document of the given number of nested, unclosed
+     * <code>&lt;a&gt;</code> elements.
+     * @param depth the number of nested elements
+     * @return the XML document
+     */
+    public static String deeplyNestedXml(int depth) {
+        return new String(new char[depth]).replace("\0", "<a>");
+    }
+
+    /**
+     * Builds a well-formed XML document of the given number of nested
+     * <code>&lt;a&gt;</code> elements around a text value.
+     * @param depth the number of nested elements
+     * @return the XML document
+     */
+    public static String wellFormedNestedXml(int depth) {
+        return new String(new char[depth]).replace("\0", "<a>")
+                + "value"
+                + new String(new char[depth]).replace("\0", "</a>");
+    }
 }
